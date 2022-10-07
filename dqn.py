@@ -100,9 +100,9 @@ class DQNAgent:
                          strides=(self.hyperparams.stride, self.hyperparams.stride), activation='relu',
                          input_shape=self.state_size)(inputs)
             for i in range(self.hyperparams.num_hidden):
-                net = Conv2D(self.hyperparams.hidden_size,
-                             (self.hyperparams.kernel/math.pow(2, i+1), self.hyperparams.kernel/math.pow(2, i+1)),
-                             strides=(self.hyperparams.stride/math.pow(2, i+1), self.hyperparams.stride/math.pow(2, i+1)), activation='relu')(net)
+                kernel_size = max(1, math.floor(self.hyperparams.kernel/math.pow(2, i+1)))
+                stride = max(1, math.floor(self.hyperparams.stride/math.pow(2, i+1)))
+                net = Conv2D(self.hyperparams.hidden_size, (kernel_size, kernel_size), strides=(stride, stride), activation='relu')(net)
             net = Flatten()(net)
             net = Dense(self.hyperparams.hidden_size, activation='relu')(net)
         else:
@@ -239,8 +239,6 @@ def train_eval_model(agent, steps, start_step = 0, mode=Mode.train):
                     if agent.use_target_model or agent.use_double_model:
                         agent.update_target_model()
 
-                if step % args.value_target_update_steps == 0:
-                    agent.update_target_value_model()
             else:
                 loss = 1
 
@@ -318,7 +316,7 @@ if __name__ == "__main__":
     print(args)
 
     np.random.seed(args.seed)
-    tf.random.set_seed(args.seed)
+    tf.set_random_seed(args.seed)
 
     env = gym.make(args.env)
     print('original state_size', env.observation_space.shape)
