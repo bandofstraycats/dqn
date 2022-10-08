@@ -1,5 +1,4 @@
 import numpy as np
-import sys
 import random
 from enum import Enum
 import argparse
@@ -11,7 +10,7 @@ import math
 from skimage.transform import resize
 from skimage.color import rgb2gray
 
-from keras.layers import Dense, Conv2D, Flatten, Input, Lambda
+from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, Input, Lambda
 from keras.optimizers import Adam
 from keras.models import Model
 from keras import backend as K
@@ -31,39 +30,37 @@ class Mode(Enum):
     predict = 3
 
 class WarpFrame(gym.ObservationWrapper):
-    def __init__(self, env):
+    def __init__(self, env, shape):
         """Warp frames to 84x84 as done in the Nature paper and later work."""
         gym.ObservationWrapper.__init__(self, env)
-        self.width = 84
-        self.height = 84
+        self.width = shape
+        self.height = shape
         self.observation_space = spaces.Box(low=0, high=255, shape=(self.height, self.width, 1))
 
-    def _observation(self, observation):
-        observation = resize(rgb2gray(observation), (84, 84))
-        return np.reshape(observation, (self.height, self.width) + (1,))
+    def observation(self, observation):
+        observation = resize(rgb2gray(observation), (self.height, self.width))
+        return np.reshape(observation, (self.height, self.width, 1))
 
 
 class WarpGrid(gym.ObservationWrapper):
     def __init__(self, env):
-        """Warp frames to 84x84 as done in the Nature paper and later work."""
         gym.ObservationWrapper.__init__(self, env)
         self.height = env.observation_space.shape[0]
         self.width = env.observation_space.shape[1]
         self.flat_shape = self.height * self.width
         self.observation_space = spaces.Box(low=0, high=4, shape=(self.flat_shape, ))
 
-    def _observation(self, observation):
+    def observation(self, observation):
         return np.reshape(observation, (self.flat_shape, ))
 
 
 # DQN Agent for Atari
 class DQNAgent:
-    def __init__(self, state_size, action_size, use_policy, hyperparams, use_conv_nets=False,
-                 use_target_model=False, use_double_model=False, use_dueling_model=False):
+    def __init__(self, state_size, action_size, use_policy, hyperparams, use_conv_net=False,
+                 use_target_model=False, use_double_model=False):
         self.use_target_model = use_target_model
-        self.use_dueling_model = use_dueling_model
         self.use_double_model = use_double_model
-        self.use_conv_nets = use_conv_nets
+        self.conv_net = use_conv_net
 
         # get size of state and action
         self.state_size = state_size
@@ -78,59 +75,37 @@ class DQNAgent:
         self.memory = deque(maxlen=self.hyperparams.replay_memory_size)
 
         # create main model
-        self.model = self.build_model()
+        self.model = self.build_q_network()
 
         # create target model
         if self.use_target_model or self.use_double_model:
-            self.target_model = self.build_model()
+            self.target_model = self.build_q_network()
 
         # update only if target network
         if self.use_target_model:
             self.update_target_model()
 
-    def build_model(self):
-        if self.use_dueling_model:
-            return self.build_dueling_model()
-        else:
-            return self.build_dqn_model()
-
-    def build_hidden_layers(self, inputs):
-        if self.use_conv_nets:
-            net = Conv2D(self.hyperparams.hidden_size, (self.hyperparams.kernel, self.hyperparams.kernel),
-                         strides=(self.hyperparams.stride, self.hyperparams.stride), activation='relu',
-                         input_shape=self.state_size)(inputs)
+    def build_hidden_layers(self, net):
+        if self.conv_net:
             for i in range(self.hyperparams.num_hidden):
-                kernel_size = max(1, math.floor(self.hyperparams.kernel/math.pow(2, i+1)))
-                stride = max(1, math.floor(self.hyperparams.stride/math.pow(2, i+1)))
-                net = Conv2D(self.hyperparams.hidden_size, (kernel_size, kernel_size), strides=(stride, stride), activation='relu')(net)
+                hidden_size = int(self.hyperparams.hidden_size * math.pow(2, i))
+                net = Conv2D(hidden_size, self.hyperparams.kernel, activation='relu')(net)
+                net = MaxPooling2D()(net)
             net = Flatten()(net)
             net = Dense(self.hyperparams.hidden_size, activation='relu')(net)
         else:
-            net = Dense(self.hyperparams.hidden_size, input_shape=self.state_size, activation='relu')(inputs)
             for _ in range(self.hyperparams.num_hidden):
                 net = Dense(self.hyperparams.hidden_size, activation='relu')(net)
-            #net = Dense(self.action_size, activation='linear')(net)
         return net
 
-    def build_dqn_model(self):
+    def build_q_network(self):
         inputs = Input(shape=self.state_size)
         hidden = self.build_hidden_layers(inputs)
         final = Dense(self.action_size, activation='linear')(hidden)
         inputs_list = [inputs]
         model = Model(inputs=inputs_list, outputs=final)
         model.summary()
-        model.compile(loss='mse', optimizer=Adam(lr=self.hyperparams.learning_rate))
-        return model
-
-    def build_dueling_model(self):
-        inputs = Input(shape=self.state_size)
-        hidden = self.build_hidden_layers(inputs)
-        y = Dense(self.action_size + 1, activation='linear')(hidden)
-        final = Lambda(lambda a: K.expand_dims(a[:, 0], -1) + a[:, 1:] - K.mean(a[:, 1:], keepdims=True),
-                       output_shape=(self.action_size,))(y)
-        model = Model(inputs=inputs, outputs=final)
-        model.summary()
-        model.compile(loss='mse', optimizer=Adam(lr=self.hyperparams.learning_rate))
+        model.compile(loss='mse', optimizer='adam')
         return model
 
     def update_target_model(self):
@@ -206,7 +181,7 @@ def write_log(writer, names, values, iteration):
         writer.add_summary(summary, iteration)
         writer.flush()
 
-def train_eval_model(agent, steps, start_step = 0, mode=Mode.train):
+def train_eval_model(agent, steps, start_step=0, mode=Mode.train):
     losses = []
     q_values = []
     returns = []
@@ -239,6 +214,9 @@ def train_eval_model(agent, steps, start_step = 0, mode=Mode.train):
                     if agent.use_target_model or agent.use_double_model:
                         agent.update_target_model()
 
+                if step % args.save_freq == 0:
+                    save_q_network()
+
             else:
                 loss = 1
 
@@ -253,39 +231,45 @@ def train_eval_model(agent, steps, start_step = 0, mode=Mode.train):
             if q_value:
                 q_values.append(q_value)
 
-        returns.append(total_reward)
+            if done:
+                returns.append(total_reward)
 
-        if losses and returns:
-            names = ['step', 'avg_return', 'max_return_of_last_100_episodes',
-                     'avg_return_of_last_100_episodes', 'avg_loss', 'avg_q_value', 'episode_len', 'epsilon']
-            prefix_names = ['/'.join([str(mode), n]) for n in names]
+            if losses and returns and step % args.log_steps == 0:
+                names = ['step', 'avg_return', 'max_return_of_last_100_episodes',
+                         'avg_return_of_last_100_episodes', 'avg_loss', 'avg_q_value', 'episode_len', 'epsilon']
+                prefix_names = ['/'.join([str(mode), n]) for n in names]
 
-            values = [step,
-                      np.average(returns),
-                      max(returns[-100:]),
-                      np.average(returns[-100:]),
-                      np.average(losses),
-                      np.average(q_values),
-                      episode_len,
-                      agent.policy.epsilon]
-            write_log(writer, prefix_names, values, step)
-            print(list(zip(prefix_names, values)))
+                values = [step,
+                          np.average(returns),
+                          max(returns[-100:]),
+                          np.average(returns[-100:]),
+                          np.average(losses),
+                          np.average(q_values),
+                          episode_len,
+                          agent.policy.epsilon]
+                write_log(writer, prefix_names, values, step)
+                print(list(zip(prefix_names, values)))
+
+
+def save_q_network():
+    save_model_path = "./models/" + run_name + ".h5"
+    print('Save Q-value model to', save_model_path)
+    agent.model.save_weights(save_model_path)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='DQN for playing Atari')
     parser.add_argument('--run-name', help='run name', default='', required=True)
     parser.add_argument('--env', help='env name', default='Breakout-ram-v0', required=True)
-    parser.add_argument('--max-steps', help='# of episodes to play', default=30000, type=int)
-    parser.add_argument('--eval-steps', help='# of episodes to play for final evaluation', default=10000, type=int)
-    parser.add_argument('--train-epoch-steps', help='# of episodes to play for final evaluation', default=10000, type=int)
-    parser.add_argument('--eval-epoch-steps', help='# of episodes to play for final evaluation', default=5000, type=int)
+    parser.add_argument('--max-steps', help='# of episodes to play', default=1000, type=int)
+    parser.add_argument('--eval-steps', help='# of episodes to play for final evaluation', default=1000, type=int)
+    parser.add_argument('--nb-epoch', help='# of episodes to play for final evaluation', default=1, type=int)
     parser.add_argument('--render', dest='render', action='store_true', help='Render episodes')
     parser.add_argument('--policy', help='EpsGreedyPolicy or SoftmaxPolicy', default='EpsGreedyPolicy')
     # stability
     parser.add_argument('--target', dest='target_dqn', action='store_true', help='Target DQN')
     parser.add_argument('--target-update-steps', help='# of steps to update target network', default=100, type=int)
     parser.add_argument('--double', dest='double_dqn', action='store_true', help='Double DQN')
-    parser.add_argument('--dueling', dest='dueling_dqn', action='store_true', help='Dueling DQN')
     # exploration
     parser.add_argument('--eps-update-steps', help='# of steps to update exploration epsilon', default=100, type=int)
     parser.add_argument('--eps-start', help='Start exploration epsilon', default=1.0, type=float)
@@ -300,17 +284,16 @@ if __name__ == "__main__":
     # hyperparams
     parser.add_argument('--gamma', help='Gamma discount factor for LT reward', default=0.99, type=float)
     # sgd
-    parser.add_argument('--lr', help='Learning for Q function', default=0.001, type=float)
     parser.add_argument('--batch-size', help='Batch size for learning for Q function', default=32, type=int)
     parser.add_argument('--train-start', help='Start training after this number of iterations', default=128, type=int)
     parser.add_argument('--memory-size', help='Replay memory size', default=100000, type=int)
     # q network
-    parser.add_argument('--use-conv-nets', dest='use_conv_nets', action='store_true', help='Use ConvNet for DQN')
+    parser.add_argument('--conv-net', dest='conv_net', action='store_true', help='Use ConvNet for DQN')
     parser.add_argument('--hidden-size', help='DNN hidden layer size', default=512, type=int)
     parser.add_argument('--num-hidden', help='DNN number of hidden layers excluding input and output', default=2,
                         type=int)
     parser.add_argument('--kernel', help='ConvNet kernel size', default=8, type=int)
-    parser.add_argument('--stride', help='ConvNet stride size', default=4, type=int)
+    parser.add_argument('--frame-size', help='Input frame size', default=84, type=int)
 
     args = parser.parse_args()
     print(args)
@@ -322,10 +305,9 @@ if __name__ == "__main__":
     print('original state_size', env.observation_space.shape)
     if args.env.startswith('grid'):
         env = WarpGrid(env)
-    elif args.use_conv_nets:
-        env = WarpFrame(env)
+    elif args.conv_net:
+        env = WarpFrame(env, shape=args.frame_size)
     env.seed(args.seed)
-    # env = wrappers.Monitor(env, '/tmp/MsPacman-ram-experiment-1',force=True)
     # get size of state and action from environment
     state_size = env.observation_space.shape
     action_size = env.action_space.n
@@ -335,8 +317,8 @@ if __name__ == "__main__":
           'max_episode_steps', max_episode_steps)
 
     hyperparams = hyperparams.HyperParams(args)
-    agent = DQNAgent(state_size, action_size, args.policy, hyperparams, args.use_conv_nets,
-                     args.target_dqn, args.double_dqn, args.dueling_dqn)
+    agent = DQNAgent(state_size, action_size, args.policy, hyperparams, args.conv_net,
+                     args.target_dqn, args.double_dqn)
 
     sess = K.get_session()
     run_name = "{}-dqn-{}-{}".format(args.env, args.run_name, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
@@ -345,7 +327,7 @@ if __name__ == "__main__":
 
     # Save config
     with open('./config/' + run_name + '.conf', 'w') as f:
-        f.write('\n'.join(sys.argv[1:]))
+        f.write('\n'.join(f'{key}={value}' for key, value in vars(args).items()))
 
     # Load agent weights
     if args.load_model:
@@ -355,14 +337,13 @@ if __name__ == "__main__":
     # Train DQN
     agent.policy = getattr(policy, args.policy)(action_size, hyperparams)
 
-    train_epoch_steps = args.train_epoch_steps
-    eval_epoch_steps = args.eval_epoch_steps
-    nb_epoch = args.max_steps // train_epoch_steps if train_epoch_steps > 0 else 0
-    for epoch in range(nb_epoch):
+    train_epoch_steps = args.max_steps // args.nb_epoch
+    eval_epoch_steps = args.eval_steps // args.nb_epoch
+    for epoch in range(args.nb_epoch):
         print('Epoch', epoch)
         train_eval_model(agent, steps=train_epoch_steps, start_step=epoch * train_epoch_steps, mode=Mode.train)
         save_epsilon = agent.policy.epsilon
-        if epoch < nb_epoch-1:
+        if epoch < args.nb_epoch-1:
             # Skip last eval
             agent.policy.epsilon = 0.0
             train_eval_model(agent, steps=eval_epoch_steps, start_step=epoch * eval_epoch_steps, mode=Mode.valid)
@@ -373,6 +354,4 @@ if __name__ == "__main__":
     train_eval_model(agent, steps=args.eval_steps, start_step=0, mode=Mode.predict)
 
     if args.max_steps > 0:
-        save_model_path = "./models/" + run_name + ".h5"
-        print('Save value model to', save_model_path)
-        agent.model.save_weights(save_model_path)
+        save_q_network()
