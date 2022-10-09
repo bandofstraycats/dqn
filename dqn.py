@@ -174,6 +174,8 @@ class DQNAgent:
 
 def write_log(writer, names, values, iteration):
     for name, value in zip(names, values):
+        if value is None:
+            continue
         summary = tf.Summary()
         summary_value = summary.value.add()
         summary_value.simple_value = value
@@ -186,11 +188,13 @@ def train_eval_model(agent, steps, start_step=0, mode=Mode.train):
     q_values = []
     returns = []
     rewards = []
+    episode_lens = []
     step = start_step
     while step < start_step + steps:
         done = False
         total_reward = 0
         episode_len = 0
+        loss = None
         state = env.reset()
         while not done:
             if args.render:
@@ -214,12 +218,6 @@ def train_eval_model(agent, steps, start_step=0, mode=Mode.train):
                     if agent.use_target_model or agent.use_double_model:
                         agent.update_target_model()
 
-                if step % args.save_freq == 0:
-                    save_q_network()
-
-            else:
-                loss = 1
-
             state = next_state
             episode_len += 1
             step += 1
@@ -233,19 +231,20 @@ def train_eval_model(agent, steps, start_step=0, mode=Mode.train):
 
             if done:
                 returns.append(total_reward)
+                episode_lens.append(episode_len)
 
-            if losses and returns and step % args.log_steps == 0:
+            if returns and step % args.log_steps == 0:
                 names = ['step', 'avg_return', 'max_return_of_last_100_episodes',
-                         'avg_return_of_last_100_episodes', 'avg_loss', 'avg_q_value', 'episode_len', 'epsilon']
+                         'avg_return_of_last_100_episodes', 'avg_episode_len', 'avg_loss', 'avg_q_value', 'epsilon']
                 prefix_names = ['/'.join([str(mode), n]) for n in names]
 
                 values = [step,
                           np.average(returns),
                           max(returns[-100:]),
                           np.average(returns[-100:]),
-                          np.average(losses),
-                          np.average(q_values),
-                          episode_len,
+                          np.average(episode_lens),
+                          np.average(losses) if losses else None,
+                          np.average(q_values) if q_values else None,
                           agent.policy.epsilon]
                 write_log(writer, prefix_names, values, step)
                 print(list(zip(prefix_names, values)))
@@ -261,8 +260,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='DQN for playing Atari')
     parser.add_argument('--run-name', help='run name', default='', required=True)
     parser.add_argument('--env', help='env name', default='Breakout-ram-v0', required=True)
-    parser.add_argument('--max-steps', help='# of episodes to play', default=1000, type=int)
-    parser.add_argument('--eval-steps', help='# of episodes to play for final evaluation', default=1000, type=int)
+    parser.add_argument('--train-steps', help='# of episodes to play', default=1000, type=int)
+    parser.add_argument('--test-steps', help='# of episodes to play for final evaluation', default=1000, type=int)
     parser.add_argument('--nb-epoch', help='# of episodes to play for final evaluation', default=1, type=int)
     parser.add_argument('--render', dest='render', action='store_true', help='Render episodes')
     parser.add_argument('--policy', help='EpsGreedyPolicy or SoftmaxPolicy', default='EpsGreedyPolicy')
@@ -337,8 +336,8 @@ if __name__ == "__main__":
     # Train DQN
     agent.policy = getattr(policy, args.policy)(action_size, hyperparams)
 
-    train_epoch_steps = args.max_steps // args.nb_epoch
-    eval_epoch_steps = args.eval_steps // args.nb_epoch
+    train_epoch_steps = args.train_steps // args.nb_epoch
+    test_epoch_steps = args.test_steps // args.nb_epoch
     for epoch in range(args.nb_epoch):
         print('Epoch', epoch)
         train_eval_model(agent, steps=train_epoch_steps, start_step=epoch * train_epoch_steps, mode=Mode.train)
@@ -346,12 +345,12 @@ if __name__ == "__main__":
         if epoch < args.nb_epoch-1:
             # Skip last eval
             agent.policy.epsilon = 0.0
-            train_eval_model(agent, steps=eval_epoch_steps, start_step=epoch * eval_epoch_steps, mode=Mode.valid)
+            train_eval_model(agent, steps=test_epoch_steps, start_step=epoch * test_epoch_steps, mode=Mode.valid)
             agent.policy.epsilon = save_epsilon
 
     # final
     agent.policy.epsilon = 0.0
-    train_eval_model(agent, steps=args.eval_steps, start_step=0, mode=Mode.predict)
+    train_eval_model(agent, steps=args.test_steps, start_step=0, mode=Mode.predict)
 
-    if args.max_steps > 0:
+    if args.train_steps > 0:
         save_q_network()
