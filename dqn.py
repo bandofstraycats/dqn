@@ -11,7 +11,6 @@ from skimage.transform import resize
 from skimage.color import rgb2gray
 
 from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, Input, Lambda
-from keras.optimizers import Adam
 from keras.models import Model
 from keras import backend as K
 import tensorflow as tf
@@ -102,8 +101,7 @@ class DQNAgent:
         inputs = Input(shape=self.state_size)
         hidden = self.build_hidden_layers(inputs)
         final = Dense(self.action_size, activation='linear')(hidden)
-        inputs_list = [inputs]
-        model = Model(inputs=inputs_list, outputs=final)
+        model = Model(inputs=inputs, outputs=final)
         model.summary()
         model.compile(loss='mse', optimizer='adam')
         return model
@@ -252,46 +250,46 @@ def train_eval_model(agent, steps, start_step=0, mode=Mode.train):
 
 def save_q_network():
     save_model_path = "./models/" + run_name + ".h5"
-    print('Save Q-value model to', save_model_path)
-    agent.model.save_weights(save_model_path)
+    print('Save Q-network to', save_model_path)
+    agent.model.save(save_model_path)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='DQN for playing Atari')
+    parser = argparse.ArgumentParser(description='Deep Q-network algorithm')
     parser.add_argument('--run-name', help='run name', default='', required=True)
     parser.add_argument('--env', help='env name', default='Breakout-ram-v0', required=True)
-    parser.add_argument('--train-steps', help='# of episodes to play', default=1000, type=int)
-    parser.add_argument('--test-steps', help='# of episodes to play for final evaluation', default=1000, type=int)
-    parser.add_argument('--nb-epoch', help='# of episodes to play for final evaluation', default=1, type=int)
-    parser.add_argument('--render', dest='render', action='store_true', help='Render episodes')
+    parser.add_argument('--train-steps', help='# of training steps', default=1000, type=int)
+    parser.add_argument('--test-steps', help='# of evaluation steps', default=1000, type=int)
+    parser.add_argument('--nb-epoch', help='# of epochs', default=1, type=int)
+    parser.add_argument('--render', dest='render', action='store_true', help='Render environment')
     parser.add_argument('--policy', help='EpsGreedyPolicy or SoftmaxPolicy', default='EpsGreedyPolicy')
     # stability
-    parser.add_argument('--target', dest='target_dqn', action='store_true', help='Target DQN')
+    parser.add_argument('--target', dest='target_dqn', action='store_true', help='Use target network')
     parser.add_argument('--target-update-steps', help='# of steps to update target network', default=100, type=int)
-    parser.add_argument('--double', dest='double_dqn', action='store_true', help='Double DQN')
+    parser.add_argument('--double', dest='double_dqn', action='store_true', help='Use double Q-network')
     # exploration
     parser.add_argument('--eps-update-steps', help='# of steps to update exploration epsilon', default=100, type=int)
     parser.add_argument('--eps-start', help='Start exploration epsilon', default=1.0, type=float)
     parser.add_argument('--eps-decay', help='Decay of exploration epsilon', default=0.9996, type=float)
     parser.add_argument('--eps-min', help='Min exploration epsilon', default=0.1, type=float)
     # io
-    parser.add_argument('--save-freq', help='# of episodes to save model', default=1000, type=int)
-    parser.add_argument('--log-steps', help='# of steps to log on console', default=100, type=int)
-    parser.add_argument('--load-model', dest='load_model', help='load previous model', default='', type=str)
+    parser.add_argument('--save-freq', help='# of steps to save model', default=1000, type=int)
+    parser.add_argument('--log-steps', help='# of steps to log on console and Tensorboard', default=100, type=int)
+    parser.add_argument('--load-model', dest='load_model', help='Load Q-network from path', default='', type=str)
     parser.add_argument('--log-dir', help='Log directory', default='logs')
     parser.add_argument('--seed', help='Random seed', default=123, type=int)
     # hyperparams
-    parser.add_argument('--gamma', help='Gamma discount factor for LT reward', default=0.99, type=float)
+    parser.add_argument('--gamma', help='Gamma discount factor', default=0.99, type=float)
     # sgd
-    parser.add_argument('--batch-size', help='Batch size for learning for Q function', default=32, type=int)
-    parser.add_argument('--train-start', help='Start training after this number of iterations', default=128, type=int)
+    parser.add_argument('--batch-size', help='Batch size to train Q-network', default=32, type=int)
+    parser.add_argument('--train-start', help='Start training after a given number of steps', default=128, type=int)
     parser.add_argument('--memory-size', help='Replay memory size', default=100000, type=int)
     # q network
-    parser.add_argument('--conv-net', dest='conv_net', action='store_true', help='Use ConvNet for DQN')
-    parser.add_argument('--hidden-size', help='DNN hidden layer size', default=512, type=int)
-    parser.add_argument('--num-hidden', help='DNN number of hidden layers excluding input and output', default=2,
+    parser.add_argument('--conv-net', dest='conv_net', action='store_true', help='Use convolutional Q-network')
+    parser.add_argument('--hidden-size', help='Q-network hidden layer size', default=512, type=int)
+    parser.add_argument('--num-hidden', help='Q-network number of hidden layers', default=2,
                         type=int)
-    parser.add_argument('--kernel', help='ConvNet kernel size', default=8, type=int)
+    parser.add_argument('--kernel', help='Convolutional network kernel size', default=8, type=int)
     parser.add_argument('--frame-size', help='Input frame size', default=84, type=int)
 
     args = parser.parse_args()
@@ -330,8 +328,8 @@ if __name__ == "__main__":
 
     # Load agent weights
     if args.load_model:
-        print('Load agent model weights', args.load_model)
-        agent.model.load_weights(args.load_model)
+        print('Load Q-network', args.load_model)
+        agent.model = tf.keras.models.load_model(args.load_model)
 
     # Train DQN
     agent.policy = getattr(policy, args.policy)(action_size, hyperparams)

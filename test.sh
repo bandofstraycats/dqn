@@ -11,12 +11,13 @@ else
 fi
 
 ENV="LunarLander-v2"
-NET="--hidden-size 64 --num-hidden 2"
+QNETWORK="--hidden-size 64 --num-hidden 2"
+QUPDATE="--target --target-update-steps 100"
 EXPLORE="--eps-min 0.01 --eps-decay 0.995 --eps-update-steps 1000"
 TRAIN_EVAL="--train-steps 500000 --test-steps 10000 --nb-epoch 1"
-LOG="--log-dir logs_dev --log-steps 10000"
+LOG="--log-dir logs --log-steps 10000"
 
-COMMON_PARAMS="--env ${ENV} --target --gamma 0.99 --target-update-steps 100"
+COMMON_PARAMS="--env ${ENV} --gamma 0.99"
 RUN_NAME="--run-name run-$RUNID"
 
-echo_and_run python dqn.py $RUN_NAME $COMMON_PARAMS $TRAIN_EVAL $LOG $NET $EXPLORE
+echo_and_run python dqn.py $RUN_NAME $COMMON_PARAMS $TRAIN_EVAL $LOG $QNETWORK $QUPDATE $EXPLORE
