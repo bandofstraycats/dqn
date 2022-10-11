@@ -2,7 +2,7 @@
 
 Deep Q-network algorithm is a reinforcement learning algorithm with Q-values computed by a neural network.
 This implementation is based on the original work of [1].
-It supports environments that implement Gym API.
+It supports environments with discrete actions that implement Gym API.
 
 ## Installation
 
@@ -10,18 +10,26 @@ It supports environments that implement Gym API.
 
 Python 3.6+, numpy, Tensorflow, Keras, Gym
 
-`pip install numpy tensorflow keras gym[all]`
+```
+conda create -n ENV_NAME python=3.6
+conda activate ENV_NAME
+pip install -r requirements.txt
+```
 
-## Example training Q-network with LunarLander-v2 environment
+## Example 
+
+### Train Q-network with LunarLander-v2 environment
 
 Q-network is a 2-hidden layer neural network.
 
-`python dqn.py --run-name run-test --env LunarLander-v2 --target --gamma 0.99 --target-update-steps 100 --train-steps 500000 --test-steps 10000 --nb-epoch 1 --log-dir logs --log-steps 10000 --hidden-size 64 --num-hidden 2 --eps-min 0.01 --eps-decay 0.995 --eps-update-steps 1000`
+`python dqn.py --run-name run-test --env LunarLander-v2 --target --gamma 0.99 --target-update-steps 100 --train-steps 500000 --test-steps 10000 --log-dir logs --log-steps 10000 --hidden-size 64 --num-hidden 2 --eps-min 0.01 --eps-decay 0.995 --eps-update-steps 1000`
 
 Training and Test evaluation metrics in Tensorboard
 `tensorboard --logdir=./logs --port=PORT`
 
-## Example 
+### Render episodes with trained Q-network 
+
+`python dqn.py --run-name run-test --env LunarLander-v2 --train-steps 0 --test-steps 1000 --load-model MODEL_PATH --render`
 
 ## References
 

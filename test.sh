@@ -14,7 +14,7 @@ ENV="LunarLander-v2"
 QNETWORK="--hidden-size 64 --num-hidden 2"
 QUPDATE="--target --target-update-steps 100"
 EXPLORE="--eps-min 0.01 --eps-decay 0.995 --eps-update-steps 1000"
-TRAIN_EVAL="--train-steps 500000 --test-steps 10000 --nb-epoch 1"
+TRAIN_EVAL="--train-steps 500000 --test-steps 10000"
 LOG="--log-dir logs --log-steps 10000"
 
 COMMON_PARAMS="--env ${ENV} --gamma 0.99"

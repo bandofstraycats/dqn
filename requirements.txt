@@ -38,7 +38,6 @@ python-dateutil==2.7.5
 PyWavelets==1.0.1
 PyYAML==3.13
 requests==2.20.1
-scikit-image==0.14.1
 setuptools==40.6.2
 six==1.11.0
 tensorboard==1.12.0

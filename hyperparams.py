@@ -1,15 +1,14 @@
 class HyperParams:
     def __init__(self, args):
-        # hyper parameters for the DQN
+        # hyper-parameters of DQN
         self.gamma = args.gamma
         self.batch_size = args.batch_size
         self.train_start = args.train_start
         # replay memory size
         self.replay_memory_size = args.memory_size
-        # dqn
+        # q-network
         self.hidden_size = args.hidden_size
         self.num_hidden = args.num_hidden
-        self.kernel = args.kernel
         # policy
         # epsilon greedy
         self.epsilon_start = args.eps_start

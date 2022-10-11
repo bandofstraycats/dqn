@@ -27,11 +27,3 @@ class EpsGreedyPolicy(Policy):
     def update_policy(self):
         if self.epsilon > self.hyperparams.epsilon_min:
             self.epsilon *= self.hyperparams.epsilon_decay
-
-class RandomPolicy(Policy):
-
-    def __init__(self, action_size, hyperparams):
-        super(RandomPolicy, self).__init__(action_size, hyperparams)
-
-    def get_action(self, q_values):
-        return np.random.randint(self.action_size), None
